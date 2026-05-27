@@ -1,0 +1,12 @@
+node_modules/
+.env
+__pycache__/
+venv/
+.venv/
+dist/
+build/
+uploads/
+.next/
+out/
+*.py[cod]
+*$py.class
