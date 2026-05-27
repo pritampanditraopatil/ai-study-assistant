@@ -1,123 +1,173 @@
-"""CRUD service for the ``subjects`` collection."""
+"""
+services/subject_service.py
+---------------------------
+Business logic for Subject CRUD operations.
+
+All functions are ``async`` and communicate with MongoDB via Motor.
+ObjectId conversion (BSON ↔ str) is handled here so that callers
+receive plain Python dicts with string IDs.
+"""
+
+from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import List, Optional
 
 from bson import ObjectId
+from bson.errors import InvalidId
 
 from db import get_database
 from schemas.subject import SubjectCreate, SubjectUpdate
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 COLLECTION = "subjects"
 
 
-def _doc_to_dict(doc: dict) -> dict:
-    """Convert a raw MongoDB document to an API-friendly dict.
+def _oid(id_str: str) -> ObjectId:
+    """
+    Convert a string to a BSON ObjectId.
 
-    Converts the ``_id`` ObjectId to a plain string stored under the key
-    ``id`` so that Pydantic response models can consume it directly.
+    Parameters
+    ----------
+    id_str : str
+        Hexadecimal MongoDB document ID.
+
+    Raises
+    ------
+    ValueError
+        If ``id_str`` is not a valid ObjectId hex string.
+
+    Returns
+    -------
+    ObjectId
+        The corresponding BSON ObjectId.
+    """
+    try:
+        return ObjectId(id_str)
+    except (InvalidId, TypeError) as exc:
+        raise ValueError(f"Invalid ObjectId: '{id_str}'") from exc
+
+
+def _serialize(doc: dict) -> dict:
+    """
+    Serialise a raw MongoDB document for API consumption.
+
+    Converts ``_id`` (ObjectId) to the string key ``id``.
+
+    Parameters
+    ----------
+    doc : dict
+        Raw document returned by Motor.
+
+    Returns
+    -------
+    dict
+        Document with ``_id`` replaced by ``id`` (str).
     """
     doc["id"] = str(doc.pop("_id"))
     return doc
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+async def list_subjects() -> List[dict]:
+    """
+    Retrieve all Subject documents from MongoDB.
 
-
-async def list_subjects() -> list[dict]:
-    """Return all subjects sorted by creation date (newest first)."""
-    db = get_database()
-    cursor = db[COLLECTION].find().sort("created_at", -1)
-    return [_doc_to_dict(doc) async for doc in cursor]
-
-
-async def get_subject(subject_id: str) -> dict | None:
-    """Fetch a single subject by its ID.
-
-    Args:
-        subject_id: Hex-encoded MongoDB ObjectId string.
-
-    Returns:
-        The subject dict, or ``None`` if not found.
+    Returns
+    -------
+    List[dict]
+        List of serialised Subject documents sorted by creation date.
     """
     db = get_database()
-    try:
-        doc = await db[COLLECTION].find_one({"_id": ObjectId(subject_id)})
-    except Exception:
-        return None
-    if doc is None:
-        return None
-    return _doc_to_dict(doc)
+    cursor = db[COLLECTION].find().sort("created_at", 1)
+    return [_serialize(doc) async for doc in cursor]
+
+
+async def get_subject(subject_id: str) -> Optional[dict]:
+    """
+    Retrieve a single Subject by its ID.
+
+    Parameters
+    ----------
+    subject_id : str
+        The string representation of the MongoDB ObjectId.
+
+    Returns
+    -------
+    Optional[dict]
+        Serialised Subject document, or ``None`` if not found.
+    """
+    db = get_database()
+    doc = await db[COLLECTION].find_one({"_id": _oid(subject_id)})
+    return _serialize(doc) if doc else None
 
 
 async def create_subject(data: SubjectCreate) -> dict:
-    """Insert a new subject document and return it.
+    """
+    Insert a new Subject document.
 
-    Args:
-        data: Validated creation payload.
+    Parameters
+    ----------
+    data : SubjectCreate
+        Validated creation payload.
 
-    Returns:
-        The newly created subject dict (including its generated ``id``).
+    Returns
+    -------
+    dict
+        The newly created Subject document (including ``id``).
     """
     db = get_database()
-    doc = {
+    document = {
         "name": data.name,
         "code": data.code,
         "description": data.description,
         "created_at": datetime.now(timezone.utc),
     }
-    result = await db[COLLECTION].insert_one(doc)
-    doc["_id"] = result.inserted_id
-    return _doc_to_dict(doc)
+    result = await db[COLLECTION].insert_one(document)
+    document["_id"] = result.inserted_id
+    return _serialize(document)
 
 
-async def update_subject(subject_id: str, data: SubjectUpdate) -> dict | None:
-    """Update an existing subject with the provided (non-None) fields.
+async def update_subject(subject_id: str, data: SubjectUpdate) -> Optional[dict]:
+    """
+    Partially update a Subject document.
 
-    Args:
-        subject_id: Hex-encoded MongoDB ObjectId string.
-        data: Validated update payload (only set fields are applied).
+    Only fields explicitly set in ``data`` are written to MongoDB (``$set``).
 
-    Returns:
-        The updated subject dict, or ``None`` if the subject was not found.
+    Parameters
+    ----------
+    subject_id : str
+        Target document ID.
+    data : SubjectUpdate
+        Fields to update; ``None`` values are excluded.
+
+    Returns
+    -------
+    Optional[dict]
+        Updated Subject document, or ``None`` if not found.
     """
     db = get_database()
-    update_fields = data.model_dump(exclude_unset=True)
-    if not update_fields:
-        # Nothing to change – just return the current document.
+    updates = data.model_dump(exclude_none=True)
+    if not updates:
+        # Nothing to update — return the existing document
         return await get_subject(subject_id)
 
-    try:
-        result = await db[COLLECTION].find_one_and_update(
-            {"_id": ObjectId(subject_id)},
-            {"$set": update_fields},
-            return_document=True,
-        )
-    except Exception:
-        return None
-
-    if result is None:
-        return None
-    return _doc_to_dict(result)
+    await db[COLLECTION].update_one({"_id": _oid(subject_id)}, {"$set": updates})
+    return await get_subject(subject_id)
 
 
 async def delete_subject(subject_id: str) -> bool:
-    """Delete a subject by ID.
+    """
+    Delete a Subject document by ID.
 
-    Args:
-        subject_id: Hex-encoded MongoDB ObjectId string.
+    Parameters
+    ----------
+    subject_id : str
+        Target document ID.
 
-    Returns:
-        ``True`` if a document was deleted, ``False`` otherwise.
+    Returns
+    -------
+    bool
+        ``True`` if a document was deleted, ``False`` if not found.
     """
     db = get_database()
-    try:
-        result = await db[COLLECTION].delete_one({"_id": ObjectId(subject_id)})
-    except Exception:
-        return False
+    result = await db[COLLECTION].delete_one({"_id": _oid(subject_id)})
     return result.deleted_count > 0

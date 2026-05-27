@@ -1,34 +1,55 @@
-"""Note request / response schemas."""
+"""
+schemas/note.py
+---------------
+Pydantic DTOs for Note ingestion and retrieval.
+"""
+
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NoteIngest(BaseModel):
-    """Payload for ingesting a new note.
+    """
+    Payload for ingesting raw student notes for a Topic.
 
-    Attributes:
-        topic_id: The parent topic's ID (hex string).
-        raw_text: Unprocessed note content submitted by the user.
+    Attributes
+    ----------
+    topic_id : str
+        The ``_id`` string of the parent Topic document.
+    raw_text : str
+        The original, unmodified text submitted by the student.
+        Must be at least 10 characters.
     """
 
     topic_id: str = Field(..., min_length=1)
-    raw_text: str = Field(..., min_length=1, max_length=50_000)
+    raw_text: str = Field(..., min_length=10)
 
 
 class NoteResponse(BaseModel):
-    """Serialised note returned to the client.
-
-    Attributes:
-        id: String representation of the MongoDB ObjectId.
-        topic_id: Parent topic ID.
-        raw_text: Original text.
-        cleaned_text: Normalised text (may equal raw_text after cleaning).
-        version: Document version counter.
-        created_at: UTC creation timestamp.
     """
+    Response DTO returned after a Note is stored.
+
+    Attributes
+    ----------
+    id : str
+        MongoDB document ID as a string.
+    topic_id : str
+        Parent Topic ID.
+    raw_text : str
+        Original submitted text.
+    cleaned_text : Optional[str]
+        Pre-processed / normalised text, populated by the service layer.
+    version : int
+        Note version (starts at 1).
+    created_at : datetime
+        UTC creation timestamp.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     id: str
     topic_id: str
@@ -36,16 +57,3 @@ class NoteResponse(BaseModel):
     cleaned_text: Optional[str] = None
     version: int
     created_at: datetime
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "id": "665f1a2b3c4d5e6f7a8b9c0d",
-                "topic_id": "665f1a2b3c4d5e6f7a8b9c0e",
-                "raw_text": "Process scheduling determines …",
-                "cleaned_text": "Process scheduling determines …",
-                "version": 1,
-                "created_at": "2025-06-01T12:00:00Z",
-            }
-        }
-    }

@@ -1,57 +1,74 @@
-"""Topic request / response schemas."""
+"""
+schemas/topic.py
+----------------
+Pydantic DTOs for Topic create / update / response operations.
+"""
+
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TopicCreate(BaseModel):
-    """Payload for creating a new topic under a subject.
+    """
+    Payload for creating a new Topic under a Subject.
 
-    Attributes:
-        subject_id: The parent subject's ID (hex string).
-        title: Topic title.
-        description: Optional elaboration.
+    Attributes
+    ----------
+    subject_id : str
+        The ``_id`` string of the parent Subject document.
+    title : str
+        Title of the topic (e.g. "Process Scheduling").
+    description : Optional[str]
+        Optional summary / learning objective for this topic.
     """
 
     subject_id: str = Field(..., min_length=1)
-    title: str = Field(..., min_length=1, max_length=300, examples=["Process Scheduling"])
+    title: str = Field(..., min_length=1, max_length=300)
     description: Optional[str] = Field(default=None, max_length=2000)
 
 
 class TopicUpdate(BaseModel):
-    """Payload for updating an existing topic.  All fields optional."""
+    """
+    Payload for partially updating an existing Topic.
+
+    Attributes
+    ----------
+    title : Optional[str]
+        New topic title.
+    description : Optional[str]
+        New description text.
+    """
 
     title: Optional[str] = Field(default=None, min_length=1, max_length=300)
     description: Optional[str] = Field(default=None, max_length=2000)
 
 
 class TopicResponse(BaseModel):
-    """Serialised topic returned to the client.
-
-    Attributes:
-        id: String representation of the MongoDB ObjectId.
-        subject_id: Parent subject ID.
-        title: Topic title.
-        description: Optional description.
-        created_at: UTC creation timestamp.
     """
+    Response DTO returned to the client after any Topic operation.
+
+    Attributes
+    ----------
+    id : str
+        MongoDB document ID as a string.
+    subject_id : str
+        Parent Subject ID.
+    title : str
+        Topic title.
+    description : Optional[str]
+        Topic description.
+    created_at : datetime
+        UTC creation timestamp.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     id: str
     subject_id: str
     title: str
     description: Optional[str] = None
     created_at: datetime
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "id": "665f1a2b3c4d5e6f7a8b9c0d",
-                "subject_id": "665f1a2b3c4d5e6f7a8b9c0e",
-                "title": "Process Scheduling",
-                "description": "CPU scheduling algorithms.",
-                "created_at": "2025-06-01T12:00:00Z",
-            }
-        }
-    }

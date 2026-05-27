@@ -1,1 +1,1 @@
-"""Route packages for the AI Study Assistant API."""
+"""routes package – FastAPI router definitions."""

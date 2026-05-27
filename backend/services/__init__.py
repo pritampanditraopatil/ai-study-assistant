@@ -1,1 +1,1 @@
-"""Business-logic services for the AI Study Assistant."""
+"""services package – Business logic layer."""

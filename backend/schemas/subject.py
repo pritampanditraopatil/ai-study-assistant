@@ -1,58 +1,83 @@
-"""Subject request / response schemas."""
+"""
+schemas/subject.py
+------------------
+Pydantic DTOs for Subject create / update / response operations.
+
+These schemas are used exclusively at the HTTP layer (request bodies and
+response serialisation).  They are separate from the MongoDB document model
+(``SubjectModel``) so that the API contract can evolve independently.
+"""
+
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SubjectCreate(BaseModel):
-    """Payload for creating a new subject.
+    """
+    Payload for creating a new Subject.
 
-    Attributes:
-        name: Human-readable subject name (required).
-        code: Short alphanumeric code, e.g. ``"OS"`` (required).
-        description: Optional longer description.
+    Attributes
+    ----------
+    name : str
+        Full human-readable name (e.g. "Operating Systems").
+    code : str
+        Short code / abbreviation (e.g. "OS").  Must be non-empty.
+    description : Optional[str]
+        Optional free-text description.
     """
 
-    name: str = Field(..., min_length=1, max_length=200, examples=["Operating Systems"])
-    code: str = Field(..., min_length=1, max_length=20, examples=["OS"])
-    description: Optional[str] = Field(default=None, max_length=2000)
+    name: str = Field(..., min_length=1, max_length=200)
+    code: str = Field(..., min_length=1, max_length=20)
+    description: Optional[str] = Field(default=None, max_length=1000)
 
 
 class SubjectUpdate(BaseModel):
-    """Payload for updating an existing subject.  All fields are optional."""
+    """
+    Payload for partially updating an existing Subject.
+
+    All fields are optional; only provided fields will be modified.
+
+    Attributes
+    ----------
+    name : Optional[str]
+        New name for the subject.
+    code : Optional[str]
+        New code/abbreviation.
+    description : Optional[str]
+        New description text.
+    """
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     code: Optional[str] = Field(default=None, min_length=1, max_length=20)
-    description: Optional[str] = Field(default=None, max_length=2000)
+    description: Optional[str] = Field(default=None, max_length=1000)
 
 
 class SubjectResponse(BaseModel):
-    """Serialised subject returned to the client.
-
-    Attributes:
-        id: String representation of the MongoDB ObjectId.
-        name: Subject name.
-        code: Short code.
-        description: Optional description.
-        created_at: UTC creation timestamp.
     """
+    Response DTO returned to the client after any Subject operation.
+
+    Attributes
+    ----------
+    id : str
+        MongoDB document ID as a string.
+    name : str
+        Subject name.
+    code : str
+        Subject code.
+    description : Optional[str]
+        Subject description.
+    created_at : datetime
+        UTC creation timestamp.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     id: str
     name: str
     code: str
     description: Optional[str] = None
     created_at: datetime
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "id": "665f1a2b3c4d5e6f7a8b9c0d",
-                "name": "Operating Systems",
-                "code": "OS",
-                "description": "Study of OS concepts.",
-                "created_at": "2025-06-01T12:00:00Z",
-            }
-        }
-    }

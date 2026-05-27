@@ -1,123 +1,153 @@
-"""CRUD service for the ``topics`` collection."""
+"""
+services/topic_service.py
+-------------------------
+Business logic for Topic CRUD operations.
+
+Supports optional filtering by ``subject_id`` when listing topics.
+All functions are async and use Motor for MongoDB access.
+"""
+
+from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from bson import ObjectId
+from bson.errors import InvalidId
 
 from db import get_database
 from schemas.topic import TopicCreate, TopicUpdate
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 COLLECTION = "topics"
 
 
-def _doc_to_dict(doc: dict) -> dict:
-    """Convert a raw MongoDB document to an API-friendly dict.
-
-    Converts ``_id`` ObjectId → ``id`` string.
+def _oid(id_str: str) -> ObjectId:
     """
+    Convert a string to a BSON ObjectId.
+
+    Raises
+    ------
+    ValueError
+        If ``id_str`` is not a valid ObjectId hex string.
+    """
+    try:
+        return ObjectId(id_str)
+    except (InvalidId, TypeError) as exc:
+        raise ValueError(f"Invalid ObjectId: '{id_str}'") from exc
+
+
+def _serialize(doc: dict) -> dict:
+    """Serialise a raw Motor document: replace ``_id`` ObjectId with ``id`` str."""
     doc["id"] = str(doc.pop("_id"))
     return doc
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+async def list_topics(subject_id: Optional[str] = None) -> List[dict]:
+    """
+    Retrieve Topic documents, with an optional subject filter.
 
+    Parameters
+    ----------
+    subject_id : Optional[str]
+        If provided, only topics belonging to this Subject are returned.
 
-async def list_topics(subject_id: Optional[str] = None) -> list[dict]:
-    """Return topics, optionally filtered by ``subject_id``.
-
-    Args:
-        subject_id: If provided, only topics belonging to this subject are
-            returned.  Otherwise all topics are returned.
-
-    Returns:
-        A list of topic dicts sorted newest-first.
+    Returns
+    -------
+    List[dict]
+        Serialised Topic documents sorted by creation date (ascending).
     """
     db = get_database()
     query: dict = {}
-    if subject_id is not None:
+    if subject_id:
         query["subject_id"] = subject_id
-    cursor = db[COLLECTION].find(query).sort("created_at", -1)
-    return [_doc_to_dict(doc) async for doc in cursor]
+    cursor = db[COLLECTION].find(query).sort("created_at", 1)
+    return [_serialize(doc) async for doc in cursor]
 
 
-async def get_topic(topic_id: str) -> dict | None:
-    """Fetch a single topic by ID.
+async def get_topic(topic_id: str) -> Optional[dict]:
+    """
+    Retrieve a single Topic by its ID.
 
-    Returns:
-        The topic dict or ``None`` if not found / invalid ID.
+    Parameters
+    ----------
+    topic_id : str
+        The string representation of the MongoDB ObjectId.
+
+    Returns
+    -------
+    Optional[dict]
+        Serialised Topic document, or ``None`` if not found.
     """
     db = get_database()
-    try:
-        doc = await db[COLLECTION].find_one({"_id": ObjectId(topic_id)})
-    except Exception:
-        return None
-    if doc is None:
-        return None
-    return _doc_to_dict(doc)
+    doc = await db[COLLECTION].find_one({"_id": _oid(topic_id)})
+    return _serialize(doc) if doc else None
 
 
 async def create_topic(data: TopicCreate) -> dict:
-    """Insert a new topic and return it.
+    """
+    Insert a new Topic document.
 
-    Args:
-        data: Validated creation payload.
+    Parameters
+    ----------
+    data : TopicCreate
+        Validated creation payload (includes ``subject_id``).
 
-    Returns:
-        The newly created topic dict.
+    Returns
+    -------
+    dict
+        The newly inserted Topic document with ``id``.
     """
     db = get_database()
-    doc = {
+    document = {
         "subject_id": data.subject_id,
         "title": data.title,
         "description": data.description,
         "created_at": datetime.now(timezone.utc),
     }
-    result = await db[COLLECTION].insert_one(doc)
-    doc["_id"] = result.inserted_id
-    return _doc_to_dict(doc)
+    result = await db[COLLECTION].insert_one(document)
+    document["_id"] = result.inserted_id
+    return _serialize(document)
 
 
-async def update_topic(topic_id: str, data: TopicUpdate) -> dict | None:
-    """Update an existing topic with non-None fields.
+async def update_topic(topic_id: str, data: TopicUpdate) -> Optional[dict]:
+    """
+    Partially update a Topic document.
 
-    Returns:
-        Updated topic dict or ``None`` if not found.
+    Parameters
+    ----------
+    topic_id : str
+        Target document ID.
+    data : TopicUpdate
+        Fields to update; ``None`` values are excluded.
+
+    Returns
+    -------
+    Optional[dict]
+        Updated Topic document, or ``None`` if not found.
     """
     db = get_database()
-    update_fields = data.model_dump(exclude_unset=True)
-    if not update_fields:
+    updates = data.model_dump(exclude_none=True)
+    if not updates:
         return await get_topic(topic_id)
 
-    try:
-        result = await db[COLLECTION].find_one_and_update(
-            {"_id": ObjectId(topic_id)},
-            {"$set": update_fields},
-            return_document=True,
-        )
-    except Exception:
-        return None
-
-    if result is None:
-        return None
-    return _doc_to_dict(result)
+    await db[COLLECTION].update_one({"_id": _oid(topic_id)}, {"$set": updates})
+    return await get_topic(topic_id)
 
 
 async def delete_topic(topic_id: str) -> bool:
-    """Delete a topic by ID.
+    """
+    Delete a Topic document by ID.
 
-    Returns:
-        ``True`` if a document was deleted, ``False`` otherwise.
+    Parameters
+    ----------
+    topic_id : str
+        Target document ID.
+
+    Returns
+    -------
+    bool
+        ``True`` if deleted, ``False`` if not found.
     """
     db = get_database()
-    try:
-        result = await db[COLLECTION].delete_one({"_id": ObjectId(topic_id)})
-    except Exception:
-        return False
+    result = await db[COLLECTION].delete_one({"_id": _oid(topic_id)})
     return result.deleted_count > 0

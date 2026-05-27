@@ -1,44 +1,43 @@
-import type { Metadata, Viewport } from 'next';
-import { Sora, IBM_Plex_Mono } from 'next/font/google';
-import './globals.css';
+import type { Metadata, Viewport } from "next";
+import { Inter, Instrument_Serif } from "next/font/google";
+import "./globals.css";
 
-const sora = Sora({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-sora',
-  weight: ['400', '500', '600', '700'],
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+  weight: ["300", "400", "500", "600"],
 });
 
-const plexMono = IBM_Plex_Mono({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-plex-mono',
-  weight: ['400', '500', '600'],
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-instrument",
+  weight: "400",
+  style: ["normal", "italic"],
 });
 
 export const viewport: Viewport = {
-  themeColor: '#0b0d12',
+  themeColor: "#0d0d0d",
 };
 
 export const metadata: Metadata = {
-  title: 'AI Study Assistant — Calm, Focused Learning',
+  title: "AI Study Assistant — Master CSE Concepts",
   description:
-    'Turn raw notes into mindmaps, explanations, and practice questions with a calm, focused study workspace for CSE students.',
-  icons: {
-    icon: '/favicon.ico',
-  },
+    "Transform your notes into interactive concept maps, smart flashcards, and personalized AI explanations for CSE students.",
+  icons: { icon: "/favicon.ico" },
 };
 
 export default function RootLayout({
   children,
-}: {
-  children: React.ReactNode;
-}) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${sora.variable} ${plexMono.variable}`}>
-      <body className="app-body">
-        <main className="app-main">{children}</main>
-      </body>
+    <html
+      lang="en"
+      data-theme="dark"
+      className={`${inter.variable} ${instrumentSerif.variable} h-full`}
+    >
+      <body className="min-h-full antialiased">{children}</body>
     </html>
   );
 }

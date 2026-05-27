@@ -1,375 +1,263 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import {
-  createSubject,
-  createTopic,
-  generateMindmap,
-  getSubjects,
-  ingestNote,
-  type Subject,
-} from '@/lib/api';
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import AppShell from "@/components/AppShell";
+import { listSubjects, listTopics, createTopic, ingestNote, generateMap, type Subject, type Topic } from "@/lib/api";
+import { useEffect } from "react";
+import { Upload, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 
-const FALLBACK_SUBJECTS: Subject[] = [
-  { id: 'os-101', name: 'Operating Systems', code: 'CS301', created_at: '2026-01-15T10:00:00Z' },
-  { id: 'dbms-101', name: 'Database Management', code: 'CS302', created_at: '2026-01-20T10:00:00Z' },
-  { id: 'dsa-101', name: 'Data Structures & Algorithms', code: 'CS201', created_at: '2026-02-01T10:00:00Z' },
-  { id: 'cn-101', name: 'Computer Networks', code: 'CS304', created_at: '2026-02-10T10:00:00Z' },
-];
-
-type ProcessingStep = 'idle' | 'ingesting' | 'generating' | 'done' | 'error';
+type Step = "idle" | "ingesting" | "generating" | "done" | "error";
 
 export default function UploadPage() {
   const router = useRouter();
-  const [subjects, setSubjects] = useState<Subject[]>(FALLBACK_SUBJECTS);
-  const [subjectMode, setSubjectMode] = useState<'existing' | 'new'>('existing');
-  const [selectedSubject, setSelectedSubject] = useState('');
-  const [newSubjectName, setNewSubjectName] = useState('');
-  const [newSubjectCode, setNewSubjectCode] = useState('');
-  const [topicName, setTopicName] = useState('');
-  const [notesText, setNotesText] = useState('');
-  const [step, setStep] = useState<ProcessingStep>('idle');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [selectedTopicId, setSelectedTopicId] = useState("");
+  const [newTopicName, setNewTopicName] = useState("");
+  const [notesText, setNotesText] = useState("");
+  const [step, setStep] = useState<Step>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [charCount, setCharCount] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadSubjects() {
-      try {
-        const data = await getSubjects();
-        if (!cancelled && data.length > 0) setSubjects(data);
-      } catch {
-        // Keep fallback data in offline mode.
-      }
-    }
-    loadSubjects();
-    return () => {
-      cancelled = true;
-    };
+    listSubjects().then(setSubjects).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
-  const wordCount = useMemo(() => {
-    const trimmed = notesText.trim();
-    if (!trimmed) return 0;
-    return trimmed.split(/\s+/).length;
-  }, [notesText]);
-
-  const qualityHint = useMemo(() => {
-    if (wordCount === 0) {
-      return { tone: 'muted', label: 'Paste notes to get instant feedback.' };
+    if (selectedSubjectId) {
+      listTopics(selectedSubjectId).then(setTopics).catch(() => {});
+    } else {
+      setTopics([]);
     }
-    if (wordCount < 60) {
-      return { tone: 'warn', label: 'Too short. Add definitions and key steps.' };
-    }
-    if (wordCount < 140) {
-      return { tone: 'warn', label: 'Add one example or common mistake.' };
-    }
-    if (wordCount < 260) {
-      return { tone: 'good', label: 'Good length. Add code or formulas if relevant.' };
-    }
-    return { tone: 'good', label: 'Strong input. You should get a detailed mindmap.' };
-  }, [wordCount]);
+  }, [selectedSubjectId]);
 
-  const canSubmit = useMemo(() => {
-    const hasSubject =
-      subjectMode === 'existing'
-        ? Boolean(selectedSubject)
-        : Boolean(newSubjectName.trim()) && Boolean(newSubjectCode.trim());
-    return hasSubject && Boolean(topicName.trim()) && wordCount >= 20;
-  }, [subjectMode, selectedSubject, newSubjectName, newSubjectCode, topicName, wordCount]);
+  const filteredTopics = topics.filter((t) => t.subject_id === selectedSubjectId);
 
-  const processingMessage =
-    step === 'ingesting'
-      ? 'Finding key concepts and cleaning notes.'
-      : step === 'generating'
-      ? 'Building the mindmap and linking ideas.'
-      : 'Preparing explanations and questions.';
-
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!selectedSubjectId || !notesText.trim()) return;
 
-    setStep('ingesting');
-    setErrorMsg('');
-
+    setStep("ingesting");
+    setErrorMsg("");
     try {
-      let subjectId = selectedSubject;
-
-      if (subjectMode === 'new') {
-        const created = await createSubject({
-          name: newSubjectName.trim(),
-          code: newSubjectCode.trim(),
+      // Resolve or create topic
+      let topicId = selectedTopicId;
+      if (!topicId && newTopicName.trim()) {
+        const created = await createTopic({
+          subject_id: selectedSubjectId,
+          title: newTopicName.trim(),
         });
-        subjectId = created.id;
-        setSubjects((prev) => [created, ...prev]);
+        topicId = created.id;
       }
+      if (!topicId) throw new Error("Please select or create a topic.");
 
-      const topic = await createTopic({
-        subject_id: subjectId,
-        title: topicName.trim(),
-      });
+      await ingestNote({ topic_id: topicId, raw_text: notesText });
+      setStep("generating");
+      await generateMap(topicId);
+      setStep("done");
 
-      await ingestNote({
-        topic_id: topic.id,
-        raw_text: notesText,
-      });
-
-      setStep('generating');
-
-      await generateMindmap(topic.id);
-
-      setStep('done');
-      setToast({ type: 'success', msg: 'Notes processed successfully.' });
-
-      setTimeout(() => {
-        router.push(`/topic/${topic.id}`);
-      }, 1400);
-    } catch (err) {
-      setStep('error');
-      const message = err instanceof Error ? err.message : 'Something went wrong';
-      setErrorMsg(message);
-      setToast({ type: 'error', msg: 'Processing failed. Switching to demo topic.' });
-
-      setTimeout(() => {
-        setStep('idle');
-        router.push('/topic/demo-topic');
-      }, 1800);
+      setTimeout(() => router.push(`/topic/${topicId}`), 1200);
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Something went wrong.");
+      setStep("error");
     }
-  }
+  };
 
-  const stepIndex = step === 'ingesting' ? 0 : step === 'generating' ? 1 : step === 'done' ? 2 : 0;
+  const isProcessing = step === "ingesting" || step === "generating";
 
   return (
-    <>
-      <nav className="navbar">
-        <Link href="/" className="navbar-brand">
-          <span className="brand-mark">SA</span>
-          <span>AI Study Assistant</span>
-        </Link>
-        <div className="navbar-links">
-          <Link href="/dashboard" className="navbar-link">
-            Dashboard
-          </Link>
-          <Link href="/upload" className="navbar-link navbar-link-active">
-            Upload
-          </Link>
-        </div>
-      </nav>
+    <AppShell crumbs={[{ label: "Upload Notes" }]}>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+        style={{ maxWidth: "640px" }}
+      >
+        <h1 className="text-display" style={{ marginBottom: "4px" }}>Upload Notes</h1>
+        <p style={{ fontSize: "13px", color: "var(--color-text-faint)", marginBottom: "2rem" }}>
+          Paste your lecture notes — we'll clean, process, and generate a concept map.
+        </p>
 
-      <div className="container page-wrapper">
-        <Link href="/dashboard" className="back-link">
-          Back to dashboard
-        </Link>
-
-        <div className="page-header">
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {/* Subject */}
           <div>
-            <h1 className="page-title">Upload notes</h1>
-            <p className="page-description">
-              Paste notes and generate a full learning workspace in minutes.
-            </p>
-          </div>
-        </div>
-
-        <div className="progress-strip">
-          {['Paste notes', 'Generate mindmap', 'Explain & questions'].map(
-            (label, index) => (
-              <div
-                key={label}
-                className={`progress-step ${index === 0 ? 'progress-step-active' : ''}`}
-              >
-                <span>{index + 1}</span>
-                {label}
-                {index === 2 && <em>coming next</em>}
-              </div>
-            )
-          )}
-        </div>
-
-        <form onSubmit={handleSubmit} className="upload-layout">
-          <div className="upload-panel">
-            <div className="panel-header compact">
-              <div>
-                <h2>Setup</h2>
-                <p>Select a subject, then name your topic.</p>
-              </div>
-            </div>
-
-            <div className="panel-body">
-              <div className="segmented">
-                <button
-                  type="button"
-                  className={`segmented-btn ${subjectMode === 'existing' ? 'active' : ''}`}
-                  onClick={() => setSubjectMode('existing')}
-                  disabled={step !== 'idle'}
-                >
-                  Use existing
-                </button>
-                <button
-                  type="button"
-                  className={`segmented-btn ${subjectMode === 'new' ? 'active' : ''}`}
-                  onClick={() => setSubjectMode('new')}
-                  disabled={step !== 'idle'}
-                >
-                  Create new
-                </button>
-              </div>
-
-              {subjectMode === 'existing' ? (
-                <div className="form-group">
-                  <label className="form-label" htmlFor="subject">
-                    Subject
-                  </label>
-                  <select
-                    id="subject"
-                    className="select"
-                    value={selectedSubject}
-                    onChange={(e) => setSelectedSubject(e.target.value)}
-                    disabled={step !== 'idle'}
-                  >
-                    <option value="">Select a subject...</option>
-                    {subjects.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="newSubject">
-                      Subject name
-                    </label>
-                    <input
-                      id="newSubject"
-                      type="text"
-                      className="input"
-                      placeholder="Operating Systems"
-                      value={newSubjectName}
-                      onChange={(e) => setNewSubjectName(e.target.value)}
-                      disabled={step !== 'idle'}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="newSubjectCode">
-                      Subject code
-                    </label>
-                    <input
-                      id="newSubjectCode"
-                      type="text"
-                      className="input"
-                      placeholder="CS301"
-                      value={newSubjectCode}
-                      onChange={(e) => setNewSubjectCode(e.target.value)}
-                      disabled={step !== 'idle'}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="topic">
-                  Topic name
-                </label>
-                <input
-                  id="topic"
-                  type="text"
-                  className="input"
-                  placeholder="Process Scheduling"
-                  value={topicName}
-                  onChange={(e) => setTopicName(e.target.value)}
-                  disabled={step !== 'idle'}
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={!canSubmit || step !== 'idle'}
-              >
-                {step === 'idle' ? 'Generate workspace' : 'Processing...'}
-              </button>
-
-              {errorMsg && (
-                <p className="form-error">{errorMsg}</p>
-              )}
-            </div>
+            <label style={labelStyle}>Subject</label>
+            <select
+              value={selectedSubjectId}
+              onChange={(e) => { setSelectedSubjectId(e.target.value); setSelectedTopicId(""); }}
+              style={inputStyle}
+              required
+            >
+              <option value="">Select a subject…</option>
+              {subjects.length > 0
+                ? subjects.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)
+                : (
+                  <>
+                    <option value="s1">CS301 — Operating Systems</option>
+                    <option value="s2">CS302 — Database Management</option>
+                    <option value="s3">CS201 — Data Structures</option>
+                    <option value="s4">CS304 — Computer Networks</option>
+                  </>
+                )}
+            </select>
           </div>
 
-          <div className="upload-panel">
-            <div className="panel-header compact">
-              <div>
-                <h2>Notes</h2>
-                <p>Paste content, definitions, or code snippets.</p>
-              </div>
-              <div className="notes-meta">
-                <span>{wordCount} words</span>
-                <span>{notesText.length} chars</span>
-              </div>
-            </div>
+          {/* Topic */}
+          <div>
+            <label style={labelStyle}>Topic</label>
+            <select
+              value={selectedTopicId}
+              onChange={(e) => setSelectedTopicId(e.target.value)}
+              style={inputStyle}
+              disabled={!selectedSubjectId}
+            >
+              <option value="">Select existing topic…</option>
+              {filteredTopics.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+              <option value="__new__">+ Create new topic</option>
+            </select>
+          </div>
 
-            <div className="panel-body">
-              <textarea
-                id="notes"
-                className="textarea"
-                placeholder="Paste your OS notes on deadlocks here. Include:
-- Conditions
-- Detection algorithm
-- Avoidance vs prevention
-- A small example"
-                value={notesText}
-                onChange={(e) => setNotesText(e.target.value)}
-                disabled={step !== 'idle'}
+          {/* New topic name */}
+          {selectedTopicId === "__new__" && (
+            <div>
+              <label style={labelStyle}>New Topic Name</label>
+              <input
+                type="text"
+                value={newTopicName}
+                onChange={(e) => setNewTopicName(e.target.value)}
+                placeholder="e.g. Process Scheduling"
+                style={inputStyle}
+                required
               />
-              <div className={`quality-hint quality-hint-${qualityHint.tone}`}>
-                {qualityHint.label}
-              </div>
+            </div>
+          )}
+
+          {/* Notes textarea */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>Notes</label>
+              <span style={{ fontSize: "11px", color: "var(--color-text-faint)" }}>
+                {charCount.toLocaleString()} chars
+              </span>
+            </div>
+            <div
+              style={{
+                background: "var(--color-surface)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "10px",
+                padding: "1px",
+                transition: "border-color 180ms var(--ease-spring)",
+              }}
+              onFocusCapture={(e) => {
+                (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border-hover)";
+              }}
+              onBlurCapture={(e) => {
+                (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)";
+              }}
+            >
+              <textarea
+                value={notesText}
+                onChange={(e) => { setNotesText(e.target.value); setCharCount(e.target.value.length); }}
+                placeholder={"Paste your lecture notes here…\n\nThe AI will:\n• Structure them into a concept map\n• Write plain-English explanations\n• Flag common misconceptions\n• Generate quiz questions"}
+                rows={14}
+                required
+                style={{
+                  width: "100%",
+                  padding: "14px",
+                  background: "transparent",
+                  border: "none",
+                  outline: "none",
+                  resize: "vertical",
+                  fontSize: "13px",
+                  color: "var(--color-text-base)",
+                  lineHeight: 1.7,
+                  fontFamily: "var(--font-sans)",
+                }}
+              />
             </div>
           </div>
+
+          {/* Error */}
+          <AnimatePresence>
+            {step === "error" && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  background: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.2)",
+                  fontSize: "12px",
+                  color: "#f87171",
+                }}
+              >
+                <AlertCircle size={14} />
+                {errorMsg}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={isProcessing || !notesText.trim() || !selectedSubjectId}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              height: "40px",
+              borderRadius: "8px",
+              border: "none",
+              background: "var(--color-text-base)",
+              color: "var(--color-bg)",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: isProcessing ? "not-allowed" : "pointer",
+              opacity: (isProcessing || !notesText.trim() || !selectedSubjectId) ? 0.5 : 1,
+              transition: "opacity 180ms var(--ease-spring)",
+            }}
+          >
+            {step === "idle" && <><Upload size={14} /> Process Notes</>}
+            {step === "ingesting" && <><Loader2 size={14} className="animate-spin" /> Ingesting notes…</>}
+            {step === "generating" && <><Loader2 size={14} className="animate-spin" /> Generating concept map…</>}
+            {step === "done" && <><CheckCircle2 size={14} /> Done! Redirecting…</>}
+            {step === "error" && <><Upload size={14} /> Try Again</>}
+          </button>
         </form>
-      </div>
-
-      {step !== 'idle' && step !== 'error' && (
-        <div className="processing-overlay">
-          <div className="processing-card">
-            <div className="spinner" />
-            <h3>Processing your notes</h3>
-            <p>{processingMessage}</p>
-
-            <div className="processing-steps">
-              {['Mindmap', 'Explanations', 'Questions'].map((label, index) => {
-                const isDone = index < stepIndex;
-                const isActive = index === stepIndex;
-                return (
-                  <div
-                    key={label}
-                    className={`processing-step ${isActive ? 'processing-step-active' : ''} ${isDone ? 'processing-step-done' : ''}`}
-                  >
-                    <span className="step-indicator">
-                      {isDone ? '✓' : index + 1}
-                    </span>
-                    {label}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className={`toast ${toast.type === 'success' ? 'toast-success' : 'toast-error'}`}>
-          {toast.msg}
-        </div>
-      )}
-    </>
+      </motion.div>
+    </AppShell>
   );
 }
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "11px",
+  fontWeight: 700,
+  letterSpacing: "0.04em",
+  color: "var(--color-text-faint)",
+  textTransform: "uppercase",
+  marginBottom: "6px",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  height: "38px",
+  padding: "0 12px",
+  borderRadius: "8px",
+  border: "1px solid var(--color-border)",
+  background: "var(--color-surface)",
+  color: "var(--color-text-base)",
+  fontSize: "13px",
+  outline: "none",
+  appearance: "none",
+  transition: "border-color 180ms var(--ease-spring)",
+};

@@ -1,22 +1,42 @@
-"""Note document model – raw + cleaned text attached to a topic."""
+"""
+models/note.py
+--------------
+Pydantic model representing a Note document in MongoDB.
+
+A Note stores raw student text ingested for a Topic, along with a cleaned
+version produced by pre-processing. Multiple versions can coexist.
+"""
+
+from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NoteModel(BaseModel):
-    """MongoDB document shape for a note.
-
-    Attributes:
-        id: MongoDB ``_id`` as a string.
-        topic_id: Foreign key referencing the parent topic.
-        raw_text: Original user-supplied text.
-        cleaned_text: Normalised / cleaned version of raw_text.
-        version: Incremental version counter.
-        created_at: UTC timestamp of creation.
     """
+    MongoDB document shape for a Note.
+
+    Attributes
+    ----------
+    id : Optional[str]
+        The MongoDB ``_id`` serialised as a plain string.
+    topic_id : str
+        Foreign-key reference to the parent ``TopicModel._id``.
+    raw_text : str
+        The original, unmodified text as submitted by the student.
+    cleaned_text : Optional[str]
+        Text after whitespace normalisation and basic pre-processing.
+        Populated by the service layer before persistence.
+    version : int
+        Monotonically increasing version counter (default 1).
+    created_at : datetime
+        UTC timestamp of document creation.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     id: Optional[str] = Field(default=None, alias="_id")
     topic_id: str
@@ -24,15 +44,3 @@ class NoteModel(BaseModel):
     cleaned_text: Optional[str] = None
     version: int = 1
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-    model_config = {
-        "populate_by_name": True,
-        "json_schema_extra": {
-            "example": {
-                "topic_id": "665f1a2b3c4d5e6f7a8b9c0d",
-                "raw_text": "Process scheduling determines which process runs next …",
-                "cleaned_text": "Process scheduling determines which process runs next …",
-                "version": 1,
-            }
-        },
-    }

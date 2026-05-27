@@ -1,91 +1,119 @@
-"""Service for ingesting and retrieving notes."""
+"""
+services/notes_service.py
+-------------------------
+Business logic for Note ingestion and retrieval.
+
+Text cleaning is performed in the service layer before persistence so that
+the LLM and mind-map pipeline always work with normalised input.
+"""
+
+from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from typing import List
 
 from bson import ObjectId
 
 from db import get_database
 from schemas.note import NoteIngest
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 COLLECTION = "notes"
 
 
-def _doc_to_dict(doc: dict) -> dict:
-    """Convert a raw MongoDB document to an API-friendly dict.
-
-    Converts ``_id`` ObjectId → ``id`` string.
-    """
+def _serialize(doc: dict) -> dict:
+    """Serialise a raw Motor document: replace ``_id`` ObjectId with ``id`` str."""
     doc["id"] = str(doc.pop("_id"))
     return doc
 
 
 def _clean_text(raw: str) -> str:
-    """Apply basic text normalisation to raw note content.
+    """
+    Apply basic text normalisation to raw student input.
 
-    Steps performed:
-    1. Strip leading / trailing whitespace.
-    2. Collapse runs of 3+ newlines into exactly two (paragraph break).
-    3. Collapse multiple spaces within a line into a single space.
-    4. Strip trailing whitespace per line.
+    Steps applied (in order):
+    1. Strip leading/trailing whitespace from the full document.
+    2. Normalise Windows/classic Mac line-endings to Unix ``\\n``.
+    3. Collapse runs of 3+ consecutive blank lines into two blank lines.
+    4. Strip trailing whitespace from every individual line.
+    5. Collapse multiple spaces (but not newlines) to a single space per line.
+
+    Parameters
+    ----------
+    raw : str
+        The original user-submitted text.
+
+    Returns
+    -------
+    str
+        The normalised text string.
     """
     text = raw.strip()
-    # Normalise line endings to \\n
+    # Normalise line endings
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    # Collapse excessive blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    # Collapse multiple spaces (but not newlines)
-    text = re.sub(r"[^\S\n]+", " ", text)
-    # Strip per-line trailing spaces
+    # Strip trailing whitespace per line
     text = "\n".join(line.rstrip() for line in text.split("\n"))
+    # Collapse runs of inline multiple spaces
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    # Collapse 3+ consecutive blank lines → 2
+    text = re.sub(r"\n{3,}", "\n\n", text)
     return text
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 async def ingest_note(data: NoteIngest) -> dict:
-    """Clean and store a new note.
+    """
+    Clean and persist a new Note document for a Topic.
 
-    The raw text is preserved as-is; a normalised ``cleaned_text`` version
-    is stored alongside it for downstream processing (e.g. LLM prompts).
+    The service:
+    1. Applies ``_clean_text()`` to produce ``cleaned_text``.
+    2. Determines the next version number for this topic.
+    3. Inserts the document and returns the serialised result.
 
-    Args:
-        data: Validated ingestion payload containing ``topic_id`` and
-            ``raw_text``.
+    Parameters
+    ----------
+    data : NoteIngest
+        Validated ingestion payload containing ``topic_id`` and ``raw_text``.
 
-    Returns:
-        The newly created note dict.
+    Returns
+    -------
+    dict
+        The newly inserted Note document with ``id``.
     """
     db = get_database()
+
     cleaned = _clean_text(data.raw_text)
-    doc = {
+
+    # Calculate next version for this topic
+    existing_count = await db[COLLECTION].count_documents({"topic_id": data.topic_id})
+    version = existing_count + 1
+
+    document = {
         "topic_id": data.topic_id,
         "raw_text": data.raw_text,
         "cleaned_text": cleaned,
-        "version": 1,
+        "version": version,
         "created_at": datetime.now(timezone.utc),
     }
-    result = await db[COLLECTION].insert_one(doc)
-    doc["_id"] = result.inserted_id
-    return _doc_to_dict(doc)
+
+    result = await db[COLLECTION].insert_one(document)
+    document["_id"] = result.inserted_id
+    return _serialize(document)
 
 
-async def get_notes_by_topic(topic_id: str) -> list[dict]:
-    """Return all notes belonging to a topic, newest first.
+async def get_notes_by_topic(topic_id: str) -> List[dict]:
+    """
+    Retrieve all Notes for a given Topic, ordered by version ascending.
 
-    Args:
-        topic_id: Hex string of the parent topic's ObjectId.
+    Parameters
+    ----------
+    topic_id : str
+        The string ID of the parent Topic document.
 
-    Returns:
-        A list of note dicts.
+    Returns
+    -------
+    List[dict]
+        List of serialised Note documents.
     """
     db = get_database()
-    cursor = db[COLLECTION].find({"topic_id": topic_id}).sort("created_at", -1)
-    return [_doc_to_dict(doc) async for doc in cursor]
+    cursor = db[COLLECTION].find({"topic_id": topic_id}).sort("version", 1)
+    return [_serialize(doc) async for doc in cursor]

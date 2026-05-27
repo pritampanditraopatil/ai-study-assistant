@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# ai-study-assistant
-AI-powered study assistant for PDF chat, summaries, quizzes, and smart learning.
-=======
 # AI Study Assistant
 
 An AI-powered study assistant that allows students to upload PDF notes and interact with them intelligently.
@@ -18,9 +14,8 @@ An AI-powered study assistant that allows students to upload PDF notes and inter
 - FAISS
 - Streamlit
 - Gemini API
-
-## Screenshots
-(Add screenshots later)
+- Next.js (Frontend)
+- FastAPI (Backend)
 
 ## Installation
 
@@ -32,4 +27,3 @@ Run:
 ```bash
 streamlit run app.py
 ```
->>>>>>> 90e03a7 (Initial commit)

@@ -1,232 +1,253 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { getSubjects, type Subject } from '@/lib/api';
+import { useEffect, useState, useCallback } from "react";
+import { motion } from "framer-motion";
+import AppShell from "@/components/AppShell";
+import StatsRow from "@/components/StatsRow";
+import SubjectCard from "@/components/SubjectCard";
+import ProgressPanel from "@/components/ProgressPanel";
+import QuickActions from "@/components/QuickActions";
+import { listSubjects, listTopics, type Subject, type Topic } from "@/lib/api";
+import type { TopicStatus } from "@/components/StatusBadge";
 
-type TopicStatus = 'ready' | 'mindmap' | 'notes' | 'explanations';
+// ─── Dummy fallback data ──────────────────────────────────────────────────
 
-interface TopicPreview {
-  id: string;
-  title: string;
-  status: TopicStatus;
-}
-
-interface SubjectCard extends Subject {
-  icon: string;
-  accent: string;
-  topics: TopicPreview[];
-}
-
-const DUMMY_SUBJECT_CARDS: SubjectCard[] = [
+const DUMMY_SUBJECTS = [
   {
-    id: 'os-101',
-    name: 'Operating Systems',
-    code: 'CS301',
-    description:
-      'Scheduling, memory management, synchronization, and file systems.',
-    created_at: '2026-01-15T10:00:00Z',
-    icon: 'OS',
-    accent: 'linear-gradient(135deg, rgba(35, 199, 184, 0.2), rgba(58, 160, 255, 0.2))',
+    id: "s1",
+    name: "Operating Systems",
+    code: "OS",
+    courseId: "CS301",
+    description: "Process management, memory, scheduling, deadlocks, and file systems.",
+    created_at: new Date().toISOString(),
     topics: [
-      { id: 'topic-sched', title: 'Process Scheduling', status: 'ready' },
-      { id: 'topic-deadlock', title: 'Deadlocks', status: 'mindmap' },
-      { id: 'topic-memory', title: 'Memory Management', status: 'explanations' },
+      { id: "t1", title: "Process Scheduling",        status: "study-ready"      as TopicStatus },
+      { id: "t2", title: "Deadlocks",                 status: "mindmap-ready"    as TopicStatus },
+      { id: "t3", title: "Memory Management",         status: "has-explanations" as TopicStatus },
+      { id: "t4", title: "File Systems",              status: "notes-only"       as TopicStatus },
     ],
   },
   {
-    id: 'dbms-101',
-    name: 'Database Management',
-    code: 'CS302',
-    description: 'SQL, normalization, transactions, and indexing.',
-    created_at: '2026-01-20T10:00:00Z',
-    icon: 'DB',
-    accent: 'linear-gradient(135deg, rgba(245, 179, 77, 0.2), rgba(244, 114, 182, 0.15))',
+    id: "s2",
+    name: "Database Management",
+    code: "DBMS",
+    courseId: "CS302",
+    description: "Relational algebra, SQL, normalization, transactions, and indexing.",
+    created_at: new Date().toISOString(),
     topics: [
-      { id: 'topic-sql', title: 'SQL Joins', status: 'ready' },
-      { id: 'topic-normal', title: 'Normalization', status: 'explanations' },
-      { id: 'topic-index', title: 'B+ Tree Indexing', status: 'mindmap' },
+      { id: "t5", title: "Normalization",             status: "study-ready"      as TopicStatus },
+      { id: "t6", title: "SQL Queries",               status: "mindmap-ready"    as TopicStatus },
+      { id: "t7", title: "Transactions & ACID",       status: "notes-only"       as TopicStatus },
     ],
   },
   {
-    id: 'dsa-101',
-    name: 'Data Structures & Algorithms',
-    code: 'CS201',
-    description: 'Graphs, DP, sorting, and complexity analysis.',
-    created_at: '2026-02-01T10:00:00Z',
-    icon: 'DSA',
-    accent: 'linear-gradient(135deg, rgba(94, 234, 212, 0.2), rgba(96, 165, 250, 0.2))',
+    id: "s3",
+    name: "Data Structures & Algorithms",
+    code: "DSA",
+    courseId: "CS201",
+    description: "Arrays, trees, graphs, sorting, searching, and complexity analysis.",
+    created_at: new Date().toISOString(),
     topics: [
-      { id: 'topic-graphs', title: 'Graph Traversal', status: 'ready' },
-      { id: 'topic-dp', title: 'Dynamic Programming', status: 'notes' },
-      { id: 'topic-sort', title: 'Sorting Analysis', status: 'explanations' },
+      { id: "t8",  title: "Binary Trees",             status: "study-ready"      as TopicStatus },
+      { id: "t9",  title: "Graph Traversal",          status: "study-ready"      as TopicStatus },
+      { id: "t10", title: "Dynamic Programming",      status: "has-explanations" as TopicStatus },
     ],
   },
   {
-    id: 'cn-101',
-    name: 'Computer Networks',
-    code: 'CS304',
-    description: 'TCP/IP, routing, congestion control, and security.',
-    created_at: '2026-02-10T10:00:00Z',
-    icon: 'CN',
-    accent: 'linear-gradient(135deg, rgba(129, 140, 248, 0.2), rgba(56, 189, 248, 0.18))',
+    id: "s4",
+    name: "Computer Networks",
+    code: "CN",
+    courseId: "CS304",
+    description: "OSI model, TCP/IP, routing protocols, congestion control, and security.",
+    created_at: new Date().toISOString(),
     topics: [
-      { id: 'topic-tcp', title: 'TCP Congestion', status: 'mindmap' },
-      { id: 'topic-osi', title: 'OSI Model', status: 'ready' },
-      { id: 'topic-dns', title: 'DNS & HTTP', status: 'notes' },
+      { id: "t11", title: "TCP/IP Stack",             status: "mindmap-ready"    as TopicStatus },
+      { id: "t12", title: "Routing Algorithms",       status: "notes-only"       as TopicStatus },
     ],
   },
 ];
 
-const STATUS_LABELS: Record<TopicStatus, string> = {
-  ready: 'Study-ready',
-  mindmap: 'Mindmap ready',
-  notes: 'Notes only',
-  explanations: 'Has explanations',
-};
+// ─── Helper: derive a status for a topic (mocked — adapt when API returns it) ─
 
-function withUiMeta(subjects: Subject[]): SubjectCard[] {
-  return subjects.map((subject, index) => {
-    const fallback = DUMMY_SUBJECT_CARDS[index % DUMMY_SUBJECT_CARDS.length];
-    return {
-      ...subject,
-      icon: fallback.icon,
-      accent: fallback.accent,
-      description: subject.description || fallback.description,
-      topics: fallback.topics,
-    };
-  });
+function deriveStatus(index: number): TopicStatus {
+  const statuses: TopicStatus[] = ["study-ready", "mindmap-ready", "has-explanations", "notes-only"];
+  return statuses[index % statuses.length];
 }
 
-export default function DashboardPage() {
-  const [subjects, setSubjects] = useState<SubjectCard[]>(DUMMY_SUBJECT_CARDS);
-  const [loading, setLoading] = useState(true);
+// ─── Dashboard Page ────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchSubjects() {
-      try {
-        const data = await getSubjects();
-        if (!cancelled && data.length > 0) {
-          setSubjects(withUiMeta(data));
-        }
-      } catch {
-        // Keep dummy data in offline mode.
-      } finally {
-        if (!cancelled) setLoading(false);
+export default function DashboardPage() {
+  const [subjects, setSubjects] = useState(DUMMY_SUBJECTS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [rawSubjects, rawTopics] = await Promise.all([
+        listSubjects(),
+        listTopics(),
+      ]);
+
+      if (rawSubjects.length === 0) {
+        // Backend connected but empty — keep dummy data for demo
+        setLoading(false);
+        return;
       }
+
+      const merged = rawSubjects.map((s) => {
+        const subjectTopics = rawTopics
+          .filter((t) => t.subject_id === s.id)
+          .map((t, i) => ({
+            id: t.id,
+            title: t.title,
+            status: deriveStatus(i),
+          }));
+        return {
+          id: s.id,
+          name: s.name,
+          code: s.code,
+          courseId: s.code,
+          description: s.description ?? "",
+          created_at: s.created_at,
+          topics: subjectTopics,
+        };
+      });
+
+      setSubjects(merged);
+    } catch {
+      // Backend not reachable — fallback to dummy data silently
+    } finally {
+      setLoading(false);
     }
-    fetchSubjects();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  const readyCount = useMemo(() => {
-    return subjects.reduce(
-      (sum, subject) => sum + subject.topics.filter((t) => t.status === 'ready').length,
-      0
-    );
-  }, [subjects]);
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const totalTopics  = subjects.reduce((n, s) => n + s.topics.length, 0);
+  const readyTopics  = subjects.reduce((n, s) => n + s.topics.filter((t) => t.status === "study-ready").length, 0);
+
+  const containerVariants = {
+    hidden: {},
+    show: { transition: { staggerChildren: 0.07 } },
+  };
+  const itemVariants = {
+    hidden: { opacity: 0, y: 16 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] } },
+  };
 
   return (
-    <>
-      <nav className="navbar">
-        <Link href="/" className="navbar-brand">
-          <span className="brand-mark">SA</span>
-          <span>AI Study Assistant</span>
-        </Link>
-        <div className="navbar-links">
-          <Link href="/dashboard" className="navbar-link navbar-link-active">
-            Dashboard
-          </Link>
-          <Link href="/upload" className="navbar-link">
-            Upload
-          </Link>
-        </div>
-      </nav>
+    <AppShell
+      crumbs={[{ label: "Dashboard" }]}
+      showAddSubject
+      showAddTopic
+    >
+      {/* Page title */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+        style={{ marginBottom: "2rem" }}
+      >
+        <h1
+          className="text-display"
+          style={{ marginBottom: "4px" }}
+        >
+          Dashboard
+        </h1>
+        <p style={{ fontSize: "13px", color: "var(--color-text-faint)" }}>
+          {loading ? "Loading your study data…" : `${subjects.length} subjects · ${totalTopics} topics · ${readyTopics} study-ready`}
+        </p>
+      </motion.div>
 
-      <div className="container page-wrapper">
-        <div className="dashboard-header">
-          <div>
-            <h1 className="page-title">Dashboard</h1>
-            <p className="page-description">
-              Subjects, topics, and study readiness at a glance.
-            </p>
-          </div>
-          <div className="dashboard-actions">
-            <button className="btn-secondary" type="button">
-              Add subject
-            </button>
-            <Link href="/upload" className="btn-primary">
-              Add topic
-            </Link>
-          </div>
-        </div>
-
-        <section className="section-block">
-          <div className="section-header">
-            <h2 className="section-title">Subjects</h2>
-            <span className="section-meta">
-              {readyCount} topics are study-ready
-            </span>
-          </div>
-
-          {loading ? (
-            <div className="grid grid-auto">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="subject-card skeleton-card">
-                  <div className="shimmer shimmer-line" style={{ width: '45%' }} />
-                  <div className="shimmer shimmer-line" style={{ width: '70%' }} />
-                  <div className="shimmer shimmer-line" style={{ width: '90%' }} />
-                  <div className="shimmer shimmer-block" style={{ height: '120px' }} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-auto">
-              {subjects.map((subject) => (
-                <article key={subject.id} className="subject-card">
-                  <div className="subject-card-header">
-                    <div
-                      className="subject-icon"
-                      style={{ background: subject.accent }}
-                    >
-                      {subject.icon}
-                    </div>
-                    <div className="subject-card-title-group">
-                      <span className="subject-card-code">{subject.code}</span>
-                      <h3>{subject.name}</h3>
-                    </div>
-                    <span className="status-pill status-pill-ready">
-                      {subject.topics.filter((t) => t.status === 'ready').length} ready
-                    </span>
-                  </div>
-                  {subject.description && (
-                    <p className="subject-card-description">{subject.description}</p>
-                  )}
-                  <div className="subject-topics">
-                    {subject.topics.map((topic) => (
-                      <Link
-                        key={topic.id}
-                        href={`/topic/${topic.id}`}
-                        className="topic-row"
-                      >
-                        <span className="topic-title">{topic.title}</span>
-                        <span
-                          className={`topic-status topic-status-${topic.status}`}
-                        >
-                          {STATUS_LABELS[topic.status]}
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+      {/* Stats row */}
+      <div style={{ marginBottom: "2rem" }}>
+        <StatsRow
+          subjectCount={subjects.length}
+          topicCount={totalTopics}
+          readyCount={readyTopics}
+          sessionCount={3}
+        />
       </div>
-    </>
+
+      {/* Section label */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.2, duration: 0.3 }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "1rem",
+        }}
+      >
+        <p
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            letterSpacing: "-0.01em",
+            color: "var(--color-text-base)",
+          }}
+        >
+          Subjects
+        </p>
+        <span
+          style={{
+            fontSize: "11px",
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            padding: "2px 8px",
+            borderRadius: "9999px",
+            background: "var(--color-surface-2)",
+            color: "var(--color-text-faint)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          {subjects.length}
+        </span>
+      </motion.div>
+
+      {/* Subjects grid */}
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(2, 1fr)",
+          gap: "1rem",
+          marginBottom: "2rem",
+        }}
+      >
+        {subjects.map((subject, i) => (
+          <SubjectCard
+            key={subject.id}
+            id={subject.id}
+            code={subject.code}
+            courseId={subject.courseId}
+            name={subject.name}
+            description={subject.description}
+            topics={subject.topics}
+            delay={i * 0.07}
+          />
+        ))}
+      </motion.div>
+
+      {/* Bottom grid: progress + quick actions */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1], delay: 0.25 }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 320px",
+          gap: "1rem",
+          alignItems: "start",
+        }}
+      >
+        <ProgressPanel />
+        <QuickActions />
+      </motion.div>
+    </AppShell>
   );
 }
