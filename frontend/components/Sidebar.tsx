@@ -5,12 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  Upload,
-  BookOpen,
+  FileText,
+  Network,
+  Layers,
   MessageSquare,
   BarChart2,
   Settings,
-  GraduationCap,
+  Brain,
   ChevronRight,
 } from "lucide-react";
 
@@ -21,15 +22,16 @@ interface NavItem {
 }
 
 const MAIN_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard",  icon: <LayoutDashboard size={16} /> },
-  { href: "/upload",    label: "Upload Notes", icon: <Upload size={16} /> },
-  { href: "/subjects",  label: "Subjects",   icon: <BookOpen size={16} /> },
+  { href: "/dashboard",    label: "Dashboard",    icon: <LayoutDashboard size={16} /> },
+  { href: "/notes",        label: "Notes",        icon: <FileText size={16} /> },
+  { href: "/maps",         label: "Concept Maps", icon: <Network size={16} /> },
+  { href: "/flashcards",   label: "Flashcards",   icon: <Layers size={16} /> },
 ];
 
 const TOOLS_NAV: NavItem[] = [
-  { href: "/chat",      label: "AI Tutor",   icon: <MessageSquare size={16} /> },
-  { href: "/progress",  label: "Progress",   icon: <BarChart2 size={16} /> },
-  { href: "/settings",  label: "Settings",   icon: <Settings size={16} /> },
+  { href: "/tutor",        label: "AI Tutor",     icon: <MessageSquare size={16} /> },
+  { href: "/analytics",    label: "Analytics",    icon: <BarChart2 size={16} /> },
+  { href: "/settings",     label: "Settings",     icon: <Settings size={16} /> },
 ];
 
 interface SidebarProps {
@@ -61,11 +63,11 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           style={{
             width: "28px",
             height: "28px",
-            background: "var(--color-text-base)",
-            color: "var(--color-surface)",
+            background: "var(--color-orange)",
+            color: "#ffffff",
           }}
         >
-          <GraduationCap size={15} />
+          <Brain size={15} />
         </div>
         {!collapsed && (
           <span
@@ -77,7 +79,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               letterSpacing: "-0.01em",
             }}
           >
-            Study Assistant
+            Neural Study Core
           </span>
         )}
       </div>

@@ -34,6 +34,11 @@
   --color-blue-faint:     rgba(96,165,250,0.08);
   --color-blue-border:    rgba(96,165,250,0.2);
 
+  /* Orange (Burnt Orange Accent) */
+  --color-orange:         #FF5A1F;
+  --color-orange-faint:   rgba(255,90,31,0.08);
+  --color-orange-border:  rgba(255,90,31,0.3);
+
   /* Fonts */
   --font-sans:    "Inter", system-ui, sans-serif;
   --font-display: "Instrument Serif", Georgia, serif;
@@ -475,6 +480,12 @@ body {
   box-shadow:
     0 0 40px rgba(255, 255, 255, 0.15),
     0 0 120px rgba(255, 255, 255, 0.05);
+}
+
+.glow-orange {
+  box-shadow:
+    0 0 40px rgba(255, 90, 31, 0.15),
+    0 0 120px rgba(255, 90, 31, 0.05);
 }
 
 
